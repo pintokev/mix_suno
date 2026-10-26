@@ -1,0 +1,12 @@
+demucs==4.1.0
+fastapi==0.162.0
+matchering==2.0.6
+numpy==2.4.6
+pedalboard==0.9.26
+playwright==1.64.1
+pyloudnorm==0.2.0
+scipy==1.17.1
+soundfile==0.14.0
+torch==2.6.0+cu124
+torchaudio==2.6.0+cu124
+uvicorn==0.54.0

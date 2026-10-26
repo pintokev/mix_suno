@@ -1,0 +1,9 @@
+{
+  "_doc": "Boom-bap ~95 BPM, voix aux inflexions reggae, piano : voix chaude devant, batterie qui claque, basse ronde.",
+  "targets": {"vocals": 0, "drums": 2.5, "bass": 2, "music": -6.5},
+  "vocals": {"warmth": 1.2, "harsh": 0.6, "saturation": 0.3, "reverb": 0.18, "delay": 0.1},
+  "drums": {"punch": 0.6, "low": 1.5, "snap": 1.5},
+  "bass": {"low": 1.5, "saturation": 0.35},
+  "music": {"duck": 3.5},
+  "master": {"low": 1.0}
+}

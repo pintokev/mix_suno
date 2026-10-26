@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Mix Suno</title>
+<style>
+  :root {
+    --bg: #14131a; --panel: #1d1c26; --line: #2c2a38; --text: #ece9f5; --muted: #9a96ad;
+    --accent: #b48cff; --accent2: #5fd4c4; --warn: #ff8f6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px;
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 2; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  select, input[type=text], input[type=number], button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; font: inherit; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #14131a; border-color: var(--accent); font-weight: 600; }
+  button.ab { min-width: 150px; font-weight: 600; }
+  button.ab.mix { background: var(--accent2); color: #14131a; border-color: var(--accent2); }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; padding: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .player { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .row { margin: 6px 0 8px; }
+  .row .top { display: flex; align-items: baseline; gap: 8px; }
+  .row label { color: var(--text); flex: 1; min-width: 0; }
+  .row label small { color: var(--muted); }
+  .row .val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .row.changed .val { color: var(--accent); }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .muted { color: var(--muted); }
+  .status { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .status.busy { color: var(--accent); }
+  .status.err { color: var(--warn); }
+  .seg { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 260px; }
+  .seg input { flex: 1; }
+  .files a { color: var(--accent2); display: block; margin: 2px 0; }
+  pre.log { font-size: 12px; color: var(--muted); white-space: pre-wrap; margin: 6px 0 0; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+  .field input { width: 100%; }
+  kbd { background: var(--line); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+  @media (max-width: 640px) { main { padding: 8px; } header { padding: 10px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mix Suno</h1>
+  <select id="song"></select>
+  <label class="muted">Préset <select id="preset"></select></label>
+  <button id="save">Enregistrer</button>
+  <button id="export" class="primary">Exporter le mix complet</button>
+  <span id="status" class="status"></span>
+</header>
+
+<main>
+  <section class="player">
+    <button id="play">▶ Lecture</button>
+    <button id="ab" class="ab">Écoute : ORIGINAL</button>
+    <div class="seg">
+      <span class="muted">Extrait à</span>
+      <input id="start" type="range" min="0" max="180" step="1" value="30">
+      <span id="startv" class="status">0:30</span>
+      <select id="dur"><option value="15">15 s</option><option value="25" selected>25 s</option><option value="45">45 s</option></select>
+    </div>
+    <select id="version"><option value="distrokid">DistroKid (−14 LUFS)</option><option value="tiktok">TikTok (fort)</option></select>
+    <label class="muted"><input id="auto" type="checkbox" checked> auto</label>
+    <button id="render">Recalculer</button>
+    <span id="meas" class="status"></span>
+    <span class="muted"><kbd>Espace</kbd> lecture · <kbd>A</kbd> original/mix · double-clic sur un curseur = valeur du préset</span>
+  </section>
+  <div id="groups" style="display:contents"></div>
+  <section>
+    <h2>Référence & clip</h2>
+    <div class="field"><span class="muted">Morceau de référence (chemin d'un WAV/MP3, vide = aucun)</span>
+      <input id="reference" type="text" placeholder="/home/…/reference.wav"></div>
+    <div class="field"><span class="muted">Copier le mix dans ce projet create_video_music (vide = non)</span>
+      <input id="clip_dir" type="text" placeholder="/home/…/create_video_music/bedo"></div>
+    <div class="field"><span class="muted">Tempo (BPM, pour l'écho et l'extrait A/B)</span>
+      <input id="bpm" type="number" step="0.1"></div>
+  </section>
+  <section>
+    <h2>Fichiers exportés</h2>
+    <div id="files" class="files muted">—</div>
+    <pre id="log" class="log"></pre>
+  </section>
+</main>
+
+
+<script>
+const ROLE_FR = {vocals: "Voix", backing: "Chœurs", drums: "Batterie", bass: "Basse", music: "Instruments"};
+// [chemin, libellé, min, max, pas, unité]
+const GROUPS = [
+  ["Équilibre", [
+    ["balance", "Équilibre auto <small>(0 = Suno, 1 = préset)</small>", 0, 1, .01, ""],
+    ["levels.vocals", "Voix", -12, 12, .1, "dB"], ["levels.backing", "Chœurs", -12, 12, .1, "dB"],
+    ["levels.drums", "Batterie", -12, 12, .1, "dB"], ["levels.bass", "Basse", -12, 12, .1, "dB"],
+    ["levels.music", "Instruments", -12, 12, .1, "dB"]]],
+  ["Voix", [
+    ["vocals.deess", "Sifflantes <small>(de-esser)</small>", 0, 1, .01, ""],
+    ["vocals.harsh", "Aigus durs / métalliques", 0, 1, .01, ""],
+    ["vocals.air", "Brillance <small>(12 kHz)</small>", -6, 6, .1, "dB"],
+    ["vocals.warmth", "Chaleur <small>(250 Hz)</small>", -3, 6, .1, "dB"],
+    ["vocals.mud", "Nettoyage boue <small>(450 Hz)</small>", 0, 6, .1, "dB"],
+    ["vocals.compression", "Compression", 0, 1, .01, ""],
+    ["vocals.saturation", "Grain analogique", 0, 1, .01, ""],
+    ["vocals.double", "Doublage", 0, 1, .01, ""],
+    ["vocals.reverb", "Reverb", 0, 1, .01, ""],
+    ["vocals.delay", "Écho", 0, 1, .01, ""]]],
+  ["Chœurs", [
+    ["backing.deess", "Sifflantes", 0, 1, .01, ""], ["backing.harsh", "Aigus durs", 0, 1, .01, ""],
+    ["backing.compression", "Compression", 0, 1, .01, ""], ["backing.reverb", "Reverb", 0, 1, .01, ""],
+    ["backing.width", "Largeur", 0, 2, .05, "×"]], "backing"],
+  ["Batterie", [
+    ["drums.punch", "Punch <small>(attaques)</small>", 0, 1, .01, ""],
+    ["drums.low", "Grosse caisse <small>(90 Hz)</small>", -6, 6, .1, "dB"],
+    ["drums.snap", "Claquant <small>(7 kHz)</small>", -6, 6, .1, "dB"],
+    ["drums.saturation", "Saturation", 0, 1, .01, ""]]],
+  ["Basse", [
+    ["bass.low", "Sub <small>(80 Hz)</small>", -6, 6, .1, "dB"],
+    ["bass.compression", "Compression", 0, 1, .01, ""],
+    ["bass.saturation", "Harmoniques <small>(audible sur téléphone)</small>", 0, 1, .01, ""]]],
+  ["Instruments", [
+    ["music.mud", "Nettoyage boue <small>(350 Hz)</small>", 0, 6, .1, "dB"],
+    ["music.harsh", "Aigus durs", 0, 1, .01, ""],
+    ["music.duck", "Place pour la voix <small>(creux sous la voix)</small>", 0, 8, .1, "dB"],
+    ["music.width", "Largeur", 0, 2, .05, "×"]]],
+  ["Master", [
+    ["master.low", "Basses", -4, 4, .1, "dB"], ["master.high", "Aigus", -4, 4, .1, "dB"],
+    ["master.glue", "Colle / punch global", 0, 1, .01, ""],
+    ["master.warmth", "Chaleur bande", 0, 1, .01, ""],
+    ["master.width", "Largeur stéréo", 0.5, 1.6, .05, "×"],
+    ["master.mono_bass", "Basses en mono sous", 0, 200, 10, "Hz"],
+    ["outputs.distrokid.lufs", "Volume DistroKid", -18, -9, .5, "LUFS"],
+    ["outputs.tiktok.lufs", "Volume TikTok", -12, -6, .5, "LUFS"]]],
+];
+
+const $ = id => document.getElementById(id);
+let S = null, PRESETS = {}, SONG = null, previewTimer = null, busy = false, pending = false;
+
+const get = (o, path) => path.split(".").reduce((a, k) => a == null ? a : a[k], o);
+function set(o, path, v) {
+  const ks = path.split("."); let n = o;
+  ks.slice(0, -1).forEach(k => n = n[k] = n[k] ?? {}); n[ks.at(-1)] = v;
+}
+const fmt = (v, unit) => (Math.abs(v) >= 10 || Number.isInteger(v) ? v : v.toFixed(2).replace(/0$/, "")) + (unit ? " " + unit : "");
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+function status(text, cls = "") { const el = $("status"); el.textContent = text; el.className = "status " + cls; }
+
+function presetValue(path) { return get(PRESETS[S.preset] || PRESETS.default, path); }
+
+function sliderRow(path, label, min, max, step, unit, value, onInput, base) {
+  const row = document.createElement("div"); row.className = "row";
+  row.innerHTML = `<div class="top"><label>${label}</label><span class="val"></span></div>
+    <input type="range" min="${min}" max="${max}" step="${step}">`;
+  const r = row.querySelector("input"), v = row.querySelector(".val");
+  const refresh = () => { v.textContent = fmt(+r.value, unit); row.classList.toggle("changed", base() !== undefined && Math.abs(+r.value - +base()) > step / 2); };
+  r.value = value ?? 0; refresh();
+  r.addEventListener("input", () => { onInput(+r.value); refresh(); schedule(); });
+  r.addEventListener("dblclick", () => { const b = base(); if (b !== undefined) { r.value = b; onInput(+b); refresh(); schedule(); } });
+  return row;
+}
+
+function build() {
+  const box = $("groups"); box.innerHTML = "";
+  const roles = new Set(SONG.stems.map(s => s.role));
+  for (const [title, rows, needRole] of GROUPS) {
+    if (needRole && !roles.has(needRole)) continue;
+    const sec = document.createElement("section"); sec.innerHTML = `<h2>${title}</h2>`;
+    for (const [path, label, min, max, step, unit] of rows) {
+      const role = path.startsWith("levels.") ? path.split(".")[1] : null;
+      if (role && !roles.has(role)) continue;
+      sec.appendChild(sliderRow(path, label, min, max, step, unit, get(S, path),
+        v => set(S, path, v), () => presetValue(path)));
+    }
+    box.appendChild(sec);
+  }
+  // une ligne par piste : coupure + volume fin
+  const sec = document.createElement("section"); sec.className = "stem";
+  sec.innerHTML = `<h2>Pistes (${SONG.stems.length})</h2>`;
+  S.stem_levels = S.stem_levels || {}; S.mute = S.mute || [];
+  for (const st of SONG.stems) {
+    const roleFr = ROLE_FR[st.role] || st.role;
+    const row = sliderRow("", st.name === roleFr ? st.name : `${st.name} <small>${roleFr}</small>`, -12, 12, .5, "dB",
+      S.stem_levels[st.file] || 0, v => { S.stem_levels[st.file] = v; }, () => 0);
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !S.mute.includes(st.file);
+    cb.title = "Piste active";
+    cb.addEventListener("change", () => {
+      S.mute = S.mute.filter(f => f !== st.file); if (!cb.checked) S.mute.push(st.file); schedule();
+    });
+    row.querySelector(".top").prepend(cb); sec.appendChild(row);
+  }
+  box.appendChild(sec);
+  $("reference").value = S.reference || ""; $("clip_dir").value = S.clip_dir || ""; $("bpm").value = S.bpm || "";
+  $("start").max = Math.max(0, Math.floor(SONG.duration - 10));
+  showFiles();
+}
+
+function showFiles() {
+  const f = $("files");
+  if (!SONG.outputs.length) { f.textContent = "Pas encore exporté."; return; }
+  f.innerHTML = SONG.outputs.map(n => `<a href="/out/${SONG.slug}/${n}" target="_blank">${n}</a>`).join("");
+  const r = SONG.report;
+  if (r) f.innerHTML += `<p class="muted">Original : ${r.original.lufs} LUFS · DistroKid : ${r.mix.distrokid?.lufs} LUFS, ${r.mix.distrokid?.true_peak} dBTP</p>`;
+}
+
+function schedule() { if ($("auto").checked) { clearTimeout(previewTimer); previewTimer = setTimeout(render, 700); } }
+
+// Lecture Web Audio : original et mix démarrent sur la même horloge, à l'échantillon près ;
+// la bascule A/B n'est qu'un fondu de gain (pas de recalage, donc pas de saccade).
+let showingMix = false, actx = null, bufs = {orig: null, mix: null}, gains = {}, sources = [];
+let playing = false, t0 = 0, offset = 0;
+const FADE = 0.015;
+
+function audio() {
+  if (!actx) {
+    actx = new AudioContext();
+    for (const k of ["orig", "mix"]) { gains[k] = actx.createGain(); gains[k].connect(actx.destination); }
+    applyGains(0);
+  }
+  return actx;
+}
+function applyGains(ramp = FADE) {
+  if (!actx) return;
+  const now = actx.currentTime;
+  for (const [k, on] of [["mix", showingMix], ["orig", !showingMix]]) {
+    const g = gains[k].gain; g.cancelScheduledValues(now); g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(on ? 1 : 0, now + ramp);
+  }
+}
+function setAB(mix) {
+  showingMix = mix; applyGains();
+  const b = $("ab"); b.textContent = "Écoute : " + (mix ? "MIX" : "ORIGINAL"); b.classList.toggle("mix", mix);
+}
+const duration = () => bufs.mix ? Math.min(bufs.mix.duration, bufs.orig.duration) : 0;
+const position = () => playing ? (offset + actx.currentTime - t0) % duration() : offset;
+
+async function decode(url) {
+  const data = await (await fetch(url)).arrayBuffer();
+  return audio().decodeAudioData(data);
+}
+
+async function render() {
+  if (!SONG) return;
+  if (busy) { pending = true; return; }
+  busy = true; status("calcul de l'extrait…", "busy");
+  try {
+    const res = await fetch(`/api/song/${SONG.slug}/preview`, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({settings: S, start: +$("start").value, duration: +$("dur").value, version: $("version").value})});
+    if (!res.ok) throw new Error(await res.text());
+    const p = await res.json();
+    const [mix, orig] = await Promise.all([decode(p.mix), decode(p.orig)]);
+    const wasPlaying = playing, pos = bufs.mix ? position() : 0;
+    if (wasPlaying) stopSources();
+    bufs = {mix, orig};
+    offset = Math.min(pos, duration() - 0.05);
+    if (wasPlaying) startSources();
+    $("meas").textContent = `mix ${p.measures.lufs} LUFS / ${p.measures.true_peak} dBTP · original ${p.lufs_original} LUFS · ${p.seconds} s`;
+    status("prêt");
+  } catch (e) { status("erreur : " + e.message.slice(0, 200), "err"); }
+  busy = false;
+  if (pending) { pending = false; render(); }
+}
+
+function startSources() {
+  const ctx = audio(); t0 = ctx.currentTime + 0.03;
+  sources = ["orig", "mix"].map(k => {
+    const s = ctx.createBufferSource(); s.buffer = bufs[k]; s.loop = true;
+    s.loopEnd = duration(); s.connect(gains[k]); s.start(t0, offset); return s;
+  });
+  playing = true;
+}
+function stopSources() {
+  offset = position(); playing = false;
+  sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources = [];
+}
+async function play() {
+  if (!bufs.mix) return;
+  await audio().resume(); startSources(); $("play").textContent = "⏸ Pause";
+}
+function pause() { if (playing) stopSources(); $("play").textContent = "▶ Lecture"; }
+$("play").onclick = () => playing ? pause() : play();
+$("ab").onclick = () => setAB(!showingMix);
+// position de lecture dans l'extrait
+setInterval(() => { if (bufs.mix) $("play").textContent = (playing ? "⏸ " : "▶ ") + mmss(position()) + " / " + mmss(duration()); }, 250);
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" && e.target.type === "text") return;
+  if (e.code === "Space") { e.preventDefault(); $("play").click(); }
+  if (e.key === "a" || e.key === "A") $("ab").click();
+});
+$("start").oninput = () => { $("startv").textContent = mmss(+$("start").value); };
+$("start").onchange = () => { offset = 0; if (playing) { stopSources(); offset = 0; startSources(); } render(); }; $("dur").onchange = render; $("version").onchange = render;
+$("render").onclick = render;
+for (const k of ["reference", "clip_dir"]) $(k).onchange = () => { S[k] = $(k).value.trim() || null; if (k === "reference") schedule(); };
+$("bpm").onchange = () => { S.bpm = +$("bpm").value || null; schedule(); };
+
+$("preset").onchange = () => {
+  const keep = {bpm: S.bpm, reference: S.reference, clip_dir: S.clip_dir, stem_levels: S.stem_levels, mute: S.mute};
+  S = structuredClone(PRESETS[$("preset").value]); Object.assign(S, keep); S.preset = $("preset").value;
+  build(); render();
+};
+
+async function saveSettings() {
+  const r = await fetch(`/api/song/${SONG.slug}/save`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({settings: S})});
+  status(r.ok ? "réglages enregistrés" : "erreur d'enregistrement", r.ok ? "" : "err");
+}
+$("save").onclick = saveSettings;
+
+$("export").onclick = async () => {
+  status("export du morceau complet…", "busy"); $("log").textContent = "";
+  await fetch(`/api/song/${SONG.slug}/export`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({settings: S})});
+  const poll = setInterval(async () => {
+    const j = await (await fetch(`/api/song/${SONG.slug}/export`)).json();
+    $("log").textContent = (j.log || []).join("\n");
+    if (j.state === "running") return;
+    clearInterval(poll);
+    if (j.state === "error") { status("export échoué : " + j.error, "err"); return; }
+    status("export terminé");
+    SONG = await (await fetch(`/api/song/${SONG.slug}`)).json(); showFiles();
+  }, 1000);
+};
+
+async function loadSong(slug) {
+  status("chargement…", "busy");
+  SONG = await (await fetch(`/api/song/${slug}`)).json();
+  S = SONG.settings; $("preset").value = S.preset;
+  build(); status(""); render();
+  try { localStorage.setItem("mix_song", slug); } catch (e) {}
+}
+
+(async () => {
+  PRESETS = await (await fetch("/api/presets")).json();
+  $("preset").innerHTML = Object.keys(PRESETS).map(p => `<option>${p}</option>`).join("");
+  const songs = await (await fetch("/api/songs")).json();
+  $("song").innerHTML = songs.map(s => `<option>${s}</option>`).join("");
+  $("song").onchange = () => loadSong($("song").value);
+  let last = null; try { last = localStorage.getItem("mix_song"); } catch (e) {}
+  const first = new URLSearchParams(location.search).get("song") || (songs.includes(last) ? last : songs[0]);
+  if (first) { $("song").value = first; loadSong(first); } else status("Aucun morceau importé : lance d'abord mix.py", "err");
+  setAB(false);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "_doc": "Trap FR 140–150 BPM : 808 énorme, hi-hats nets, voix sèche et présente.",
+  "targets": {"vocals": 0, "drums": 2, "bass": 3, "music": -7},
+  "vocals": {"air": 2.0, "compression": 0.65, "saturation": 0.2, "double": 0.2, "reverb": 0.1, "delay": 0.08},
+  "drums": {"punch": 0.55, "low": 0.5, "snap": 2.0},
+  "bass": {"low": 1.5, "compression": 0.6, "saturation": 0.45},
+  "master": {"glue": 0.5, "low": 1.0}
+}
